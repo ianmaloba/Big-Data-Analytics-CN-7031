@@ -1,0 +1,8 @@
+Metric,Value
+Accuracy,0.9767988445378152
+Weighted Precision,0.9766724996835379
+Weighted Recall,0.9767988445378152
+Weighted F1-Score,0.9711372548239648
+Number of Classes,14.0
+Training Samples,1778139.0
+Testing Samples,761600.0
