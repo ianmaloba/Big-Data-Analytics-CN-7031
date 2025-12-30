@@ -7,7 +7,7 @@ QUERY 1: ATTACK DISTRIBUTION ANALYSIS
 Total Records Analyzed: 2,539,739
 Normal Traffic Records: 2,218,456 (87.35%)
 Attack Traffic Records: 321,283 (12.65%)
-Number of Attack Categories: 10
+Number of Attack Categories: 9
 Most Common Attack: Analysis
   - Count: 2,677
 
