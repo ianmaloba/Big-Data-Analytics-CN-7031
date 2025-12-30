@@ -6,6 +6,14 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# Windows compatibility fix for PySpark
+import sys
+if sys.platform == "win32":
+    import socketserver
+    # Add missing UnixStreamServer for Windows compatibility
+    if not hasattr(socketserver, 'UnixStreamServer'):
+        socketserver.UnixStreamServer = socketserver.TCPServer
+
 # Initialize findspark for Windows compatibility
 import findspark
 findspark.init()
@@ -120,10 +128,19 @@ df = spark.read.csv(
     schema=schema
 )
 
+# Clean attack_cat field - remove leading/trailing spaces and handle empty values
+from pyspark.sql.functions import trim, when, col as F_col
+
+df_clean = df.withColumn(
+    "attack_cat",
+    when(trim(F_col("attack_cat")) == "", None).otherwise(trim(F_col("attack_cat")))
+)
+df = df_clean
 df.cache()
 total_records = df.count()
 print(f"✓ Loaded {total_records:,} records")
 print(f"✓ Number of features: {len(df.columns)}")
+print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
 
 # ============================================================================
 # 1. DESCRIPTIVE STATISTICS

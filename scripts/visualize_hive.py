@@ -32,6 +32,15 @@ q1_df = pd.read_csv(
     names=['traffic_type', 'attack_cat', 'count', 'avg_duration', 'avg_src_bytes', 'avg_dst_bytes']
 )
 
+# Clean attack categories - remove leading/trailing spaces and handle duplicates
+q1_df['attack_cat'] = q1_df['attack_cat'].astype(str).str.strip()
+q1_df = q1_df.groupby(['traffic_type', 'attack_cat']).agg({
+    'count': 'sum',
+    'avg_duration': 'mean',
+    'avg_src_bytes': 'mean',
+    'avg_dst_bytes': 'mean'
+}).reset_index()
+
 # Calculate counts - convert to Python int immediately
 normal_count = int(q1_df[q1_df['traffic_type'] == 'Normal']['count'].sum())
 attack_count = int(q1_df[q1_df['traffic_type'] == 'Attack']['count'].sum())
@@ -115,6 +124,16 @@ q2_df = pd.read_csv(
     './results/hive_results/query2/000000_0',
     names=['protocol', 'service_type', 'connection_count', 'attack_count', 'attack_percentage', 'avg_total_bytes']
 )
+
+# Clean protocol and service type data - remove leading/trailing spaces
+q2_df['protocol'] = q2_df['protocol'].astype(str).str.strip()
+q2_df['service_type'] = q2_df['service_type'].astype(str).str.strip()
+q2_df = q2_df.groupby(['protocol', 'service_type']).agg({
+    'connection_count': 'sum',
+    'attack_count': 'sum',
+    'attack_percentage': 'mean',
+    'avg_total_bytes': 'mean'
+}).reset_index()
 
 print(f"   - Loaded {len(q2_df)} protocol/service combinations")
 
@@ -210,6 +229,19 @@ q4_df = pd.read_csv(
     names=['state', 'total_connections', 'avg_src_bytes', 'stddev_src_bytes',
            'min_src_bytes', 'max_src_bytes', 'median_src_bytes', 'avg_duration', 'attack_count']
 )
+
+# Clean connection state data - remove leading/trailing spaces
+q4_df['state'] = q4_df['state'].astype(str).str.strip()
+q4_df = q4_df.groupby('state').agg({
+    'total_connections': 'sum',
+    'avg_src_bytes': 'mean',
+    'stddev_src_bytes': 'mean',
+    'min_src_bytes': 'min',
+    'max_src_bytes': 'max',
+    'median_src_bytes': 'mean',
+    'avg_duration': 'mean',
+    'attack_count': 'sum'
+}).reset_index()
 
 print(f"   - Loaded {len(q4_df)} connection states")
 

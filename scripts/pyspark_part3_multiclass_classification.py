@@ -7,6 +7,14 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# Windows compatibility fix for PySpark
+import sys
+if sys.platform == "win32":
+    import socketserver
+    # Add missing UnixStreamServer for Windows compatibility
+    if not hasattr(socketserver, 'UnixStreamServer'):
+        socketserver.UnixStreamServer = socketserver.TCPServer
+
 # Initialize findspark for Windows compatibility
 import findspark
 findspark.init()
@@ -89,8 +97,17 @@ schema = StructType([
 
 df = spark.read.csv('file:///' + os.path.abspath('./data/UNSW-NB15.csv'), header=False, schema=schema)
 df = df.na.fill(0)
+
+# Clean attack_cat field - remove leading/trailing spaces and handle empty values
+from pyspark.sql.functions import trim, when, col as F_col
+df = df.withColumn(
+    "attack_cat",
+    when(trim(F_col("attack_cat")) == "", None).otherwise(trim(F_col("attack_cat")))
+)
+
 total_records = df.count()
 print(f"✓ Loaded {total_records:,} records")
+print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
 
 # ============================================================================
 # PREPARE MULTI-CLASS LABELS
