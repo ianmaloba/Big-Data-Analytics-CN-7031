@@ -128,14 +128,18 @@ df = spark.read.csv(
     schema=schema
 )
 
-# Clean attack_cat field - remove leading/trailing spaces and handle empty values
-from pyspark.sql.functions import trim, when, col as F_col
+# Clean attack_cat field - remove leading/trailing spaces and standardize categories
+from pyspark.sql.functions import trim, when, col as F_col, regexp_replace
 
-df_clean = df.withColumn(
-    "attack_cat",
-    when(trim(F_col("attack_cat")) == "", None).otherwise(trim(F_col("attack_cat")))
-)
-df = df_clean
+df = df.withColumn(
+    "attack_cat_trimmed",
+    trim(F_col("attack_cat"))
+).withColumn(
+    "attack_cat_standardized",
+    when(F_col("attack_cat_trimmed") == "", None)
+    .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
+    .otherwise(F_col("attack_cat_trimmed"))
+).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
 df.cache()
 total_records = df.count()
 print(f"✓ Loaded {total_records:,} records")

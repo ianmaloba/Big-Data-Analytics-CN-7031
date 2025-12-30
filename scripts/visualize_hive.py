@@ -32,8 +32,10 @@ q1_df = pd.read_csv(
     names=['traffic_type', 'attack_cat', 'count', 'avg_duration', 'avg_src_bytes', 'avg_dst_bytes']
 )
 
-# Clean attack categories - remove leading/trailing spaces and handle duplicates
+# Clean attack categories - remove leading/trailing spaces, standardize plurals, and handle duplicates
 q1_df['attack_cat'] = q1_df['attack_cat'].astype(str).str.strip()
+# Standardize plural to singular
+q1_df['attack_cat'] = q1_df['attack_cat'].replace('Backdoors', 'Backdoor')
 q1_df = q1_df.groupby(['traffic_type', 'attack_cat']).agg({
     'count': 'sum',
     'avg_duration': 'mean',
