@@ -7,24 +7,24 @@ QUERY 1: ATTACK DISTRIBUTION ANALYSIS
 Total Records Analyzed: 2,539,739
 Normal Traffic Records: 2,218,456 (87.35%)
 Attack Traffic Records: 321,283 (12.65%)
-Number of Attack Categories: 13
-Most Common Attack: Generic
-  - Count: 215,481
+Number of Attack Categories: 10
+Most Common Attack: Analysis
+  - Count: 2,677
 
 QUERY 2: PROTOCOL ANALYSIS
 ----------------------------------------------------------------------
 Protocol/Service Combinations Analyzed: 13
-Highest Attack Percentage: SCTP/- (100.00%)
+Highest Attack Percentage: ARP/- (0.00%)
 Most Common Protocol/Service: TCP/- (983,352 connections)
 
 QUERY 4: CONNECTION STATE ANALYSIS
 ----------------------------------------------------------------------
 Connection States Analyzed: 6
-Most Vulnerable State: INT (260,620 attacks)
+Most Vulnerable State: CLO (1 attacks)
 State with Most Connections: FIN (1,478,689 connections)
 Average Connection Duration: 5.1490 seconds
 
 ======================================================================
 All visualizations have been saved to:
-./results/hive_visualizations
+results\hive_visualizations
 ======================================================================
