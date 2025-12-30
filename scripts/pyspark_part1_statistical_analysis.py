@@ -6,12 +6,18 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# Initialize findspark for Windows compatibility
+import findspark
+findspark.init()
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, mean, stddev, min as spark_min, max as spark_max
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, LongType
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
@@ -36,7 +42,13 @@ spark = SparkSession.builder \
     .config("spark.driver.memory", "4g") \
     .config("spark.executor.memory", "4g") \
     .config("spark.sql.shuffle.partitions", "8") \
+    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+    .config("spark.sql.adaptive.enabled", "true") \
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
     .getOrCreate()
+
+# Set Spark context log level to reduce verbose output
+spark.sparkContext.setLogLevel("WARN")
 
 spark.sparkContext.setLogLevel("ERROR")
 print(f"✓ Spark Version: {spark.version}")
@@ -98,8 +110,12 @@ schema = StructType([
     StructField("label", IntegerType(), True)
 ])
 
+# Get absolute path for the CSV file
+import os
+csv_path = os.path.abspath('./data/UNSW-NB15.csv')
+
 df = spark.read.csv(
-    'file://./data/UNSW-NB15.csv',
+    csv_path,
     header=False,
     schema=schema
 )

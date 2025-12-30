@@ -37,6 +37,42 @@ The UNSW-NB15 dataset was created by the Australian Centre for Cyber Security (A
 
 **Attack Subcategories:** [UNSW-NB15 Event List](./data/UNSW-NB15_LIST_EVENTS.csv)
 
+## Setup Instructions
+
+### 1. Dataset Download
+**IMPORTANT:** The main dataset file is not included in this repository due to its large size (580MB). You must download it manually:
+
+1. **Download the dataset** from: [UNSW-NB15 Dataset](https://www.dropbox.com/s/4xqg32ih9xoh5jq/UNSW-NB15.csv?dl=1)
+2. **Save the file as:** `UNSW-NB15.csv`
+3. **Place it in the:** `data/` folder
+4. **Verify the file structure:**
+   ```
+   data/
+   ├── UNSW-NB15.csv                 ← Download and place here
+   ├── UNSW-NB15_features.csv        ← Already included
+   └── UNSW-NB15_LIST_EVENTS.csv     ← Already included
+   ```
+
+### 2. Environment Setup
+```bash
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # On Windows
+# source .venv/bin/activate  # On macOS/Linux
+
+# Install dependencies (compatible versions for Windows)
+pip install -r requirements.txt
+```
+
+### 3. Verify Setup
+```bash
+# Test if PySpark is working
+python -c "import pyspark; print('PySpark version:', pyspark.__version__)"
+
+# Check dataset
+python -c "import os; print('Dataset exists:', os.path.exists('data/UNSW-NB15.csv'))"
+```
+
 ## Assignment Tasks
 
 The coursework was structured around five main tasks:
@@ -264,33 +300,40 @@ java -version
 ### Python Environment Setup
 ```bash
 # Create virtual environment
-python3 -m venv venv_bigdata
-source venv_bigdata/bin/activate
+python -m venv .venv
 
-# Install required packages
+# Activate virtual environment
+.venv\Scripts\activate  # On Windows
+# source .venv/bin/activate  # On macOS/Linux
+
+# Install compatible packages (Windows-tested versions)
 pip install -r requirements.txt
 ```
 
+**Note:** The requirements.txt includes specific package versions tested for Windows compatibility, including PySpark 3.5.1 with findspark for better Windows support.
+
 ### Running the Analysis
+
+**Important:** Ensure the UNSW-NB15.csv dataset is downloaded and placed in the `data/` folder before running any PySpark scripts.
 
 #### Statistical Analysis
 ```bash
-python3 scripts/pyspark_part1_statistical_analysis.py
+python scripts/pyspark_part1_statistical_analysis.py
 ```
 
 #### Binary Classification
 ```bash
-python3 scripts/pyspark_part2_binary_classification.py
+python scripts/pyspark_part2_binary_classification.py
 ```
 
 #### Multi-class Classification
 ```bash
-python3 scripts/pyspark_part3_multiclass_classification.py
+python scripts/pyspark_part3_multiclass_classification.py
 ```
 
 #### Hive Visualization
 ```bash
-python3 scripts/visualize_hive.py
+python scripts/visualize_hive.py
 ```
 
 ## Academic References

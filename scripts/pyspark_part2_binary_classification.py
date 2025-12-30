@@ -6,6 +6,10 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# Initialize findspark for Windows compatibility
+import findspark
+findspark.init()
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, LongType
@@ -16,6 +20,8 @@ from pyspark.ml import Pipeline
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
