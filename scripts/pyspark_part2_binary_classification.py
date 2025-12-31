@@ -6,6 +6,14 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
+# Windows compatibility fix for PySpark
+import sys
+if sys.platform == "win32":
+    import socketserver
+    # Add missing UnixStreamServer for Windows compatibility
+    if not hasattr(socketserver, 'UnixStreamServer'):
+        socketserver.UnixStreamServer = socketserver.TCPServer
+
 # Initialize findspark for Windows compatibility
 import findspark
 findspark.init()
@@ -88,8 +96,23 @@ schema = StructType([
 
 df = spark.read.csv('file:///' + os.path.abspath('./data/UNSW-NB15.csv'), header=False, schema=schema)
 df = df.na.fill(0)  # Fill nulls
+
+# Clean attack_cat field - remove leading/trailing spaces and standardize categories
+from pyspark.sql.functions import trim, when, col as F_col, regexp_replace
+
+df = df.withColumn(
+    "attack_cat_trimmed",
+    trim(F_col("attack_cat"))
+).withColumn(
+    "attack_cat_standardized",
+    when(F_col("attack_cat_trimmed") == "", None)
+    .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
+    .otherwise(F_col("attack_cat_trimmed"))
+).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
+
 total_records = df.count()
 print(f"✓ Loaded {total_records:,} records")
+print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
 
 # ============================================================================
 # PREPARE FEATURES

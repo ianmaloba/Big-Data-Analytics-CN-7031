@@ -2,14 +2,11 @@ attack_category,count
 Normal,2218456
 Generic,215481
 Exploits,44525
-Fuzzers ,19195
+Fuzzers,24246
 DoS,16353
-Reconnaissance ,12228
-Fuzzers,5051
+Reconnaissance,13987
 Analysis,2677
 Backdoor,1795
-Reconnaissance,1759
-Shellcode ,1288
+Shellcode,1511
 Backdoors,534
-Shellcode,223
 Worms,174

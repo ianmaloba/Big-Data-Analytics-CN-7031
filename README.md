@@ -12,7 +12,7 @@ For questions or discussions about this project, please feel free to reach out t
 
 I implemented a complete big data analytics pipeline for network intrusion detection, utilizing Apache Hive for distributed query processing and Apache Spark with PySpark for advanced statistical analysis and machine learning. The analysis encompasses exploratory data analysis, statistical characterization, and the development of both binary and multi-class classification models to detect and categorize network attacks.
 
-The project achieved exceptional results with 99.07% accuracy for binary classification (normal vs attack traffic) and 97.68% accuracy for multi-class classification across 14 attack categories. These results demonstrate the effectiveness of modern machine learning approaches for cybersecurity applications.
+The project achieved exceptional results with 99.07% accuracy for binary classification (normal vs attack traffic) and 97.68% accuracy for multi-class classification across 9 attack categories.
 
 ## Dataset
 
@@ -175,7 +175,7 @@ I extended the analysis to multi-class classification identifying specific attac
 
 **Model Configuration:**
 - Algorithm: Random Forest
-- Classes: 14 (1 Normal + 13 Attack categories including duplicates due to inconsistent labelling)
+- Classes: 10 (1 Normal + 9 Attack categories with proper data cleaning and standardization)
 - Same architecture as binary classifier
 
 **Performance Metrics:**
