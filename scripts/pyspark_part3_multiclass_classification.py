@@ -52,15 +52,20 @@ print("=" * 80)
 # ============================================================================
 print("\n[1/7] Initializing Spark Session...")
 
-spark = SparkSession.builder \
-    .appName("Multi-class Classification") \
-    .config("spark.driver.memory", "4g") \
-    .config("spark.executor.memory", "4g") \
-    .config("spark.sql.shuffle.partitions", "8") \
-    .getOrCreate()
+try:
+    spark = SparkSession.builder \
+        .appName("Multi-class Classification") \
+        .config("spark.driver.memory", "4g") \
+        .config("spark.executor.memory", "4g") \
+        .config("spark.sql.shuffle.partitions", "8") \
+        .getOrCreate()
 
-spark.sparkContext.setLogLevel("ERROR")
-print(f"✓ Spark Version: {spark.version}")
+    spark.sparkContext.setLogLevel("ERROR")
+    print(f"✓ Spark Version: {spark.version}")
+except Exception as e:
+    print(f"✗ Error initializing Spark session: {str(e)}")
+    print("Please ensure Spark is properly installed and configured.")
+    sys.exit(1)
 
 # ============================================================================
 # LOAD DATA
@@ -95,42 +100,78 @@ schema = StructType([
     StructField("label", IntegerType(), True)
 ])
 
-df = spark.read.csv('file:///' + os.path.abspath('./data/UNSW-NB15.csv'), header=False, schema=schema)
-df = df.na.fill(0)
+# Validate data file exists
+csv_path = os.path.abspath('./data/UNSW-NB15.csv')
+if not os.path.exists(csv_path):
+    print(f"✗ Error: Data file not found at {csv_path}")
+    print("Please ensure the UNSW-NB15.csv file exists in the data directory.")
+    spark.stop()
+    sys.exit(1)
+
+try:
+    df = spark.read.csv('file:///' + csv_path, header=False, schema=schema)
+    df = df.na.fill(0)
+except Exception as e:
+    print(f"✗ Error loading data file: {str(e)}")
+    print("Please check the file format and permissions.")
+    spark.stop()
+    sys.exit(1)
 
 # Clean attack_cat field - remove leading/trailing spaces and standardize categories
 from pyspark.sql.functions import trim, when, col as F_col, regexp_replace
 
-df = df.withColumn(
-    "attack_cat_trimmed",
-    trim(F_col("attack_cat"))
-).withColumn(
-    "attack_cat_standardized",
-    when(F_col("attack_cat_trimmed") == "", None)
-    .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
-    .otherwise(F_col("attack_cat_trimmed"))
-).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
+try:
+    df = df.withColumn(
+        "attack_cat_trimmed",
+        trim(F_col("attack_cat"))
+    ).withColumn(
+        "attack_cat_standardized",
+        when(F_col("attack_cat_trimmed") == "", None)
+        .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
+        .otherwise(F_col("attack_cat_trimmed"))
+    ).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
 
-total_records = df.count()
-print(f"✓ Loaded {total_records:,} records")
-print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
+    total_records = df.count()
+    
+    if total_records == 0:
+        print("✗ Error: Dataset is empty")
+        spark.stop()
+        sys.exit(1)
+        
+    print(f"✓ Loaded {total_records:,} records")
+    print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
+except Exception as e:
+    print(f"✗ Error processing data: {str(e)}")
+    spark.stop()
+    sys.exit(1)
 
 # ============================================================================
 # PREPARE MULTI-CLASS LABELS
 # ============================================================================
 print("\n[3/7] Preparing Multi-class Labels...")
 
-# Map attack categories (label=0 becomes "Normal", others keep their attack_cat)
-df_multiclass = df.withColumn(
-    "attack_category",
-    when(col("label") == 0, "Normal").otherwise(col("attack_cat"))
-)
+try:
+    # Map attack categories (label=0 becomes "Normal", others keep their attack_cat)
+    df_multiclass = df.withColumn(
+        "attack_category",
+        when(col("label") == 0, "Normal").otherwise(col("attack_cat"))
+    )
 
-# Check class distribution
-print("\n--- Class Distribution ---")
-class_dist = df_multiclass.groupBy("attack_category").count().orderBy(col("count").desc())
-class_dist_pd = class_dist.toPandas()
-print(class_dist_pd.to_string(index=False))
+    # Check class distribution
+    print("\n--- Class Distribution ---")
+    class_dist = df_multiclass.groupBy("attack_category").count().orderBy(col("count").desc())
+    class_dist_pd = class_dist.toPandas()
+    
+    if class_dist_pd.empty:
+        print("✗ Error: No class distribution data found")
+        spark.stop()
+        sys.exit(1)
+        
+    print(class_dist_pd.to_string(index=False))
+except Exception as e:
+    print(f"✗ Error preparing multiclass labels: {str(e)}")
+    spark.stop()
+    sys.exit(1)
 
 # Visualization 1: Class Distribution
 fig, ax = plt.subplots(figsize=(12, 8))
@@ -216,209 +257,299 @@ predictions_rf.cache()
 # ============================================================================
 print("\n[6/7] Evaluating Model Performance...")
 
-evaluator_acc = MulticlassClassificationEvaluator(
-    labelCol="class_label", predictionCol="prediction", metricName="accuracy"
-)
-evaluator_f1 = MulticlassClassificationEvaluator(
-    labelCol="class_label", predictionCol="prediction", metricName="f1"
-)
-evaluator_precision = MulticlassClassificationEvaluator(
-    labelCol="class_label", predictionCol="prediction", metricName="weightedPrecision"
-)
-evaluator_recall = MulticlassClassificationEvaluator(
-    labelCol="class_label", predictionCol="prediction", metricName="weightedRecall"
-)
+try:
+    evaluator_acc = MulticlassClassificationEvaluator(
+        labelCol="class_label", predictionCol="prediction", metricName="accuracy"
+    )
+    evaluator_f1 = MulticlassClassificationEvaluator(
+        labelCol="class_label", predictionCol="prediction", metricName="f1"
+    )
+    evaluator_precision = MulticlassClassificationEvaluator(
+        labelCol="class_label", predictionCol="prediction", metricName="weightedPrecision"
+    )
+    evaluator_recall = MulticlassClassificationEvaluator(
+        labelCol="class_label", predictionCol="prediction", metricName="weightedRecall"
+    )
 
-accuracy = evaluator_acc.evaluate(predictions_rf)
-f1_score = evaluator_f1.evaluate(predictions_rf)
-precision = evaluator_precision.evaluate(predictions_rf)
-recall = evaluator_recall.evaluate(predictions_rf)
+    accuracy = evaluator_acc.evaluate(predictions_rf)
+    f1_score = evaluator_f1.evaluate(predictions_rf)
+    precision = evaluator_precision.evaluate(predictions_rf)
+    recall = evaluator_recall.evaluate(predictions_rf)
 
-print(f"\n--- Random Forest Performance ---")
-print(f"✓ Accuracy: {accuracy:.4f}")
-print(f"✓ Weighted F1-Score: {f1_score:.4f}")
-print(f"✓ Weighted Precision: {precision:.4f}")
-print(f"✓ Weighted Recall: {recall:.4f}")
+    print(f"\n--- Random Forest Performance ---")
+    print(f"✓ Accuracy: {accuracy:.4f}")
+    print(f"✓ Weighted F1-Score: {f1_score:.4f}")
+    print(f"✓ Weighted Precision: {precision:.4f}")
+    print(f"✓ Weighted Recall: {recall:.4f}")
+except Exception as e:
+    print(f"✗ Error evaluating model performance: {str(e)}")
+    # Set default values for graceful degradation
+    accuracy = f1_score = precision = recall = 0.0
 
-# Get predictions for sklearn metrics
-pred_data = predictions_rf.select("class_label", "prediction", "attack_category").toPandas()
-y_true = pred_data['class_label'].values.astype(int)
-y_pred = pred_data['prediction'].values.astype(int)
+try:
+    # Get predictions for sklearn metrics
+    pred_data = predictions_rf.select("class_label", "prediction", "attack_category").toPandas()
+    
+    if pred_data.empty:
+        print("⚠ Warning: No prediction data available for detailed analysis")
+        y_true = y_pred = np.array([])
+        cm = np.array([[]])
+        class_report = {}
+    else:
+        y_true = pred_data['class_label'].values.astype(int)
+        y_pred = pred_data['prediction'].values.astype(int)
+        print(f"✓ Processed {len(y_true):,} predictions for detailed analysis")
+except Exception as e:
+    print(f"⚠ Warning: Error processing predictions for detailed analysis: {str(e)}")
+    y_true = y_pred = np.array([])
+    cm = np.array([[]])
+    class_report = {}
 
 # ============================================================================
 # VISUALIZATIONS
 # ============================================================================
 print("\n[7/7] Creating Visualizations...")
 
-# Confusion Matrix
-cm = confusion_matrix(y_true, y_pred)
+try:
+    # Confusion Matrix
+    if len(y_true) > 0 and len(y_pred) > 0:
+        cm = confusion_matrix(y_true, y_pred)
+    else:
+        print("⚠ Warning: No predictions available for confusion matrix")
+        cm = np.array([[]])
+except Exception as e:
+    print(f"⚠ Warning: Error creating confusion matrix: {str(e)}")
+    cm = np.array([[]])
 
 # Visualization 2: Confusion Matrix
-fig, ax = plt.subplots(figsize=(14, 12))
-sns.heatmap(cm, annot=True, fmt='d', cmap='YlOrRd',
-            xticklabels=label_to_class,
-            yticklabels=label_to_class,
-            cbar_kws={'label': 'Count'}, ax=ax, annot_kws={'size': 9})
+try:
+    if cm.size > 0 and 'label_to_class' in locals():
+        fig, ax = plt.subplots(figsize=(14, 12))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='YlOrRd',
+                    xticklabels=label_to_class,
+                    yticklabels=label_to_class,
+                    cbar_kws={'label': 'Count'}, ax=ax, annot_kws={'size': 9})
 
-plt.xlabel('Predicted Class', fontsize=13, weight='bold')
-plt.ylabel('True Class', fontsize=13, weight='bold')
-plt.title('Multi-class Classification Confusion Matrix\n(10 Categories)',
-          fontsize=15, weight='bold', pad=20)
-plt.xticks(rotation=45, ha='right')
-plt.yticks(rotation=0)
-plt.tight_layout()
-plt.savefig(output_dir / 'multiclass_confusion_matrix.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: multiclass_confusion_matrix.png")
+        plt.xlabel('Predicted Class', fontsize=13, weight='bold')
+        plt.ylabel('True Class', fontsize=13, weight='bold')
+        plt.title('Multi-class Classification Confusion Matrix\n(10 Categories)',
+                  fontsize=15, weight='bold', pad=20)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'multiclass_confusion_matrix.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: multiclass_confusion_matrix.png")
+    else:
+        print("⚠ Warning: Skipping confusion matrix visualization - no data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create confusion matrix visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Classification Report
-class_report = classification_report(y_true, y_pred,
-                                    target_names=label_to_class,
-                                    output_dict=True,
-                                    zero_division=0)
+try:
+    if len(y_true) > 0 and len(y_pred) > 0 and 'label_to_class' in locals():
+        class_report = classification_report(y_true, y_pred,
+                                            target_names=label_to_class,
+                                            output_dict=True,
+                                            zero_division=0)
 
-report_df = pd.DataFrame(class_report).transpose()
-report_df.to_csv(output_dir / 'multiclass_classification_report.csv')
-print("✓ Saved: multiclass_classification_report.csv")
+        report_df = pd.DataFrame(class_report).transpose()
+        report_df.to_csv(output_dir / 'multiclass_classification_report.csv')
+        print("✓ Saved: multiclass_classification_report.csv")
+    else:
+        print("⚠ Warning: Skipping classification report - no prediction data available")
+        class_report = {}
+except Exception as e:
+    print(f"⚠ Warning: Failed to create classification report: {str(e)}")
+    class_report = {}
 
 # Visualization 3: Per-Class Performance Metrics
-fig, axes = plt.subplots(1, 3, figsize=(18, 7))
+try:
+    if class_report and 'label_to_class' in locals():
+        fig, axes = plt.subplots(1, 3, figsize=(18, 7))
 
-metrics_to_plot = ['precision', 'recall', 'f1-score']
-colors_map = ['#3498db', '#e67e22', '#9b59b6']
+        metrics_to_plot = ['precision', 'recall', 'f1-score']
+        colors_map = ['#3498db', '#e67e22', '#9b59b6']
 
-for idx, metric in enumerate(metrics_to_plot):
-    ax = axes[idx]
+        for idx, metric in enumerate(metrics_to_plot):
+            ax = axes[idx]
 
-    # Get metric values for each class
-    values = []
-    for cls in label_to_class:
-        if cls in class_report:
-            values.append(class_report[cls][metric])
-        else:
-            values.append(0)
+            # Get metric values for each class
+            values = []
+            for cls in label_to_class:
+                if cls in class_report:
+                    values.append(class_report[cls][metric])
+                else:
+                    values.append(0)
 
-    colors = plt.cm.viridis(np.array(values))
-    bars = ax.bar(range(len(label_to_class)), values,
-                   color=colors_map[idx], alpha=0.8, edgecolor='black')
+            colors = plt.cm.viridis(np.array(values))
+            bars = ax.bar(range(len(label_to_class)), values,
+                           color=colors_map[idx], alpha=0.8, edgecolor='black')
 
-    ax.set_xticks(range(len(label_to_class)))
-    ax.set_xticklabels(label_to_class, rotation=45, ha='right', fontsize=9)
-    ax.set_ylabel(metric.capitalize(), fontsize=12, weight='bold')
-    ax.set_title(f'{metric.capitalize()} per Class', fontsize=13, weight='bold')
-    ax.set_ylim([0, 1.1])
-    ax.grid(axis='y', alpha=0.3)
+            ax.set_xticks(range(len(label_to_class)))
+            ax.set_xticklabels(label_to_class, rotation=45, ha='right', fontsize=9)
+            ax.set_ylabel(metric.capitalize(), fontsize=12, weight='bold')
+            ax.set_title(f'{metric.capitalize()} per Class', fontsize=13, weight='bold')
+            ax.set_ylim([0, 1.1])
+            ax.grid(axis='y', alpha=0.3)
 
-    # Add value labels
-    for i, bar in enumerate(bars):
-        height = bar.get_height()
-        if height > 0:
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-                   f'{height:.2f}', ha='center', fontsize=8, weight='bold')
+            # Add value labels
+            for i, bar in enumerate(bars):
+                height = bar.get_height()
+                if height > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                           f'{height:.2f}', ha='center', fontsize=8, weight='bold')
 
-plt.suptitle('Multi-class Classification Performance Metrics',
-             fontsize=16, weight='bold')
-plt.tight_layout()
-plt.savefig(output_dir / 'multiclass_performance_metrics.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: multiclass_performance_metrics.png")
+        plt.suptitle('Multi-class Classification Performance Metrics',
+                     fontsize=16, weight='bold')
+        plt.tight_layout()
+        plt.savefig(output_dir / 'multiclass_performance_metrics.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: multiclass_performance_metrics.png")
+    else:
+        print("⚠ Warning: Skipping per-class metrics visualization - no data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create per-class metrics visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 4: Normalized Confusion Matrix (Heatmap %)
-cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+try:
+    if cm.size > 0 and 'label_to_class' in locals():
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
 
-fig, ax = plt.subplots(figsize=(14, 12))
-sns.heatmap(cm_normalized, annot=True, fmt='.1f', cmap='RdYlGn',
-            xticklabels=label_to_class,
-            yticklabels=label_to_class,
-            cbar_kws={'label': 'Percentage (%)'}, ax=ax, annot_kws={'size': 9})
+        fig, ax = plt.subplots(figsize=(14, 12))
+        sns.heatmap(cm_normalized, annot=True, fmt='.1f', cmap='RdYlGn',
+                    xticklabels=label_to_class,
+                    yticklabels=label_to_class,
+                    cbar_kws={'label': 'Percentage (%)'}, ax=ax, annot_kws={'size': 9})
 
-plt.xlabel('Predicted Class', fontsize=13, weight='bold')
-plt.ylabel('True Class', fontsize=13, weight='bold')
-plt.title('Normalized Confusion Matrix (Percentage)\n(10 Categories)',
-          fontsize=15, weight='bold', pad=20)
-plt.xticks(rotation=45, ha='right')
-plt.yticks(rotation=0)
-plt.tight_layout()
-plt.savefig(output_dir / 'multiclass_confusion_normalized.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: multiclass_confusion_normalized.png")
+        plt.xlabel('Predicted Class', fontsize=13, weight='bold')
+        plt.ylabel('True Class', fontsize=13, weight='bold')
+        plt.title('Normalized Confusion Matrix (Percentage)\n(10 Categories)',
+                  fontsize=15, weight='bold', pad=20)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'multiclass_confusion_normalized.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: multiclass_confusion_normalized.png")
+    else:
+        print("⚠ Warning: Skipping normalized confusion matrix - no data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create normalized confusion matrix: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 5: Feature Importance
-feature_importance = model_rf.stages[-1].featureImportances.toArray()
-importance_df = pd.DataFrame({
-    'Feature': feature_columns,
-    'Importance': feature_importance
-}).sort_values('Importance', ascending=False)
+try:
+    if 'model_rf' in locals() and model_rf is not None:
+        feature_importance = model_rf.stages[-1].featureImportances.toArray()
+        importance_df = pd.DataFrame({
+            'Feature': feature_columns,
+            'Importance': feature_importance
+        }).sort_values('Importance', ascending=False)
 
-importance_df.to_csv(output_dir / 'multiclass_feature_importance.csv', index=False)
+        importance_df.to_csv(output_dir / 'multiclass_feature_importance.csv', index=False)
 
-fig, ax = plt.subplots(figsize=(12, 10))
-top_features = importance_df.head(20)
-colors = plt.cm.plasma(top_features['Importance'] / top_features['Importance'].max())
-bars = ax.barh(range(len(top_features)), top_features['Importance'],
-               color=colors, edgecolor='black')
+        fig, ax = plt.subplots(figsize=(12, 10))
+        top_features = importance_df.head(20)
+        colors = plt.cm.plasma(top_features['Importance'] / top_features['Importance'].max()) if len(top_features) > 0 else ['blue']
+        bars = ax.barh(range(len(top_features)), top_features['Importance'],
+                       color=colors, edgecolor='black')
 
-ax.set_yticks(range(len(top_features)))
-ax.set_yticklabels(top_features['Feature'])
-ax.set_xlabel('Importance Score', fontsize=13, weight='bold')
-ax.set_ylabel('Feature', fontsize=13, weight='bold')
-ax.set_title('Top 20 Feature Importance - Multi-class Classification',
-             fontsize=15, weight='bold', pad=20)
-ax.grid(axis='x', alpha=0.3)
+        ax.set_yticks(range(len(top_features)))
+        ax.set_yticklabels(top_features['Feature'])
+        ax.set_xlabel('Importance Score', fontsize=13, weight='bold')
+        ax.set_ylabel('Feature', fontsize=13, weight='bold')
+        ax.set_title('Top 20 Feature Importance - Multi-class Classification',
+                     fontsize=15, weight='bold', pad=20)
+        ax.grid(axis='x', alpha=0.3)
 
-for i, (idx, row) in enumerate(top_features.iterrows()):
-    ax.text(row['Importance'] + 0.001, i, f"{row['Importance']:.4f}",
-            va='center', fontsize=9)
+        for i, (idx, row) in enumerate(top_features.iterrows()):
+            ax.text(row['Importance'] + 0.001, i, f"{row['Importance']:.4f}",
+                    va='center', fontsize=9)
 
-plt.tight_layout()
-plt.savefig(output_dir / 'multiclass_feature_importance.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: multiclass_feature_importance.png")
+        plt.tight_layout()
+        plt.savefig(output_dir / 'multiclass_feature_importance.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: multiclass_feature_importance.png")
+    else:
+        print("⚠ Warning: Skipping feature importance visualization - no trained model available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create feature importance visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 6: Overall Metrics Bar Chart
-overall_metrics = {
-    'Metric': ['Accuracy', 'Weighted Precision', 'Weighted Recall', 'Weighted F1-Score'],
-    'Score': [accuracy, precision, recall, f1_score]
-}
-metrics_df = pd.DataFrame(overall_metrics)
+try:
+    if all(var in locals() and var is not None for var in ['accuracy', 'precision', 'recall', 'f1_score']):
+        overall_metrics = {
+            'Metric': ['Accuracy', 'Weighted Precision', 'Weighted Recall', 'Weighted F1-Score'],
+            'Score': [accuracy, precision, recall, f1_score]
+        }
+        metrics_df = pd.DataFrame(overall_metrics)
 
-fig, ax = plt.subplots(figsize=(10, 6))
-colors_map = ['#3498db', '#e67e22', '#9b59b6', '#2ecc71']
-bars = ax.bar(metrics_df['Metric'], metrics_df['Score'],
-              color=colors_map, alpha=0.8, edgecolor='black')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors_map = ['#3498db', '#e67e22', '#9b59b6', '#2ecc71']
+        bars = ax.bar(metrics_df['Metric'], metrics_df['Score'],
+                      color=colors_map, alpha=0.8, edgecolor='black')
 
-ax.set_ylabel('Score', fontsize=13, weight='bold')
-ax.set_ylim([0, 1.1])
-ax.set_title('Multi-class Classification Overall Performance',
-             fontsize=15, weight='bold', pad=20)
-ax.grid(axis='y', alpha=0.3)
+        ax.set_ylabel('Score', fontsize=13, weight='bold')
+        ax.set_ylim([0, 1.1])
+        ax.set_title('Multi-class Classification Overall Performance',
+                     fontsize=15, weight='bold', pad=20)
+        ax.grid(axis='y', alpha=0.3)
 
-for i, bar in enumerate(bars):
-    height = bar.get_height()
-    ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-           f'{height:.4f}', ha='center', fontsize=11, weight='bold')
+        for i, bar in enumerate(bars):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                   f'{height:.4f}', ha='center', fontsize=11, weight='bold')
 
-plt.xticks(rotation=15, ha='right')
-plt.tight_layout()
-plt.savefig(output_dir / 'multiclass_overall_metrics.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: multiclass_overall_metrics.png")
+        plt.xticks(rotation=15, ha='right')
+        plt.tight_layout()
+        plt.savefig(output_dir / 'multiclass_overall_metrics.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: multiclass_overall_metrics.png")
+    else:
+        print("⚠ Warning: Skipping overall metrics visualization - not all metrics available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create overall metrics visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # ============================================================================
 # SAVE RESULTS
 # ============================================================================
-# Save overall metrics
-metrics_results = pd.DataFrame({
-    'Metric': ['Accuracy', 'Weighted Precision', 'Weighted Recall', 'Weighted F1-Score',
-               'Number of Classes', 'Training Samples', 'Testing Samples'],
-    'Value': [accuracy, precision, recall, f1_score, num_classes, train_count, test_count]
-})
-metrics_results.to_csv(output_dir / 'multiclass_metrics.csv', index=False)
-print("✓ Saved: multiclass_metrics.csv")
+try:
+    # Save overall metrics
+    metrics_results = pd.DataFrame({
+        'Metric': ['Accuracy', 'Weighted Precision', 'Weighted Recall', 'Weighted F1-Score',
+                   'Number of Classes', 'Training Samples', 'Testing Samples'],
+        'Value': [accuracy if 'accuracy' in locals() else 0, 
+                  precision if 'precision' in locals() else 0, 
+                  recall if 'recall' in locals() else 0, 
+                  f1_score if 'f1_score' in locals() else 0, 
+                  num_classes if 'num_classes' in locals() else 0, 
+                  train_count if 'train_count' in locals() else 0, 
+                  test_count if 'test_count' in locals() else 0]
+    })
+    metrics_results.to_csv(output_dir / 'multiclass_metrics.csv', index=False)
+    print("✓ Saved: multiclass_metrics.csv")
+except Exception as e:
+    print(f"⚠ Warning: Failed to save metrics: {str(e)}")
 
-# Save class distribution
-class_dist_pd.to_csv(output_dir / 'multiclass_class_distribution.csv', index=False)
-print("✓ Saved: multiclass_class_distribution.csv")
+try:
+    # Save class distribution
+    if 'class_dist_pd' in locals() and not class_dist_pd.empty:
+        class_dist_pd.to_csv(output_dir / 'multiclass_class_distribution.csv', index=False)
+        print("✓ Saved: multiclass_class_distribution.csv")
+    else:
+        print("⚠ Warning: Skipping class distribution save - no data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to save class distribution: {str(e)}")
 
 # ============================================================================
 # SUMMARY
@@ -427,16 +558,16 @@ print("\n" + "=" * 80)
 print("PART 3 COMPLETE - MULTI-CLASS CLASSIFICATION")
 print("=" * 80)
 print(f"\nModel: Random Forest Classifier")
-print(f"Number of Classes: {num_classes}")
-print(f"Classes: {', '.join(label_to_class[:3])}... (and {num_classes-3} more)")
-print(f"Training Samples: {train_count:,}")
-print(f"Testing Samples: {test_count:,}")
+print(f"Number of Classes: {num_classes if 'num_classes' in locals() else 'N/A'}")
+print(f"Classes: {', '.join(label_to_class[:3]) + f'... (and {num_classes-3} more)' if 'label_to_class' in locals() and 'num_classes' in locals() and num_classes > 3 else 'N/A'}")
+print(f"Training Samples: {train_count:,}" if 'train_count' in locals() else "Training Samples: N/A")
+print(f"Testing Samples: {test_count:,}" if 'test_count' in locals() else "Testing Samples: N/A")
 print(f"Features Used: {len(feature_columns)}")
 print(f"\nPerformance Summary:")
-print(f"  Accuracy: {accuracy:.4f}")
-print(f"  Weighted F1-Score: {f1_score:.4f}")
-print(f"  Weighted Precision: {precision:.4f}")
-print(f"  Weighted Recall: {recall:.4f}")
+print(f"  Accuracy: {accuracy:.4f}" if 'accuracy' in locals() else "  Accuracy: N/A")
+print(f"  Weighted F1-Score: {f1_score:.4f}" if 'f1_score' in locals() else "  Weighted F1-Score: N/A")
+print(f"  Weighted Precision: {precision:.4f}" if 'precision' in locals() else "  Weighted Precision: N/A")
+print(f"  Weighted Recall: {recall:.4f}" if 'recall' in locals() else "  Weighted Recall: N/A")
 print(f"\nOutput directory: {output_dir}")
 print("\nGenerated Files:")
 print("  1. multiclass_distribution.png")
@@ -449,8 +580,12 @@ print("  7. multiclass_classification_report.csv")
 print("  8. multiclass_feature_importance.csv")
 print("  9. multiclass_metrics.csv")
 print(" 10. multiclass_class_distribution.csv")
-print("\n✓ Total: 10 files generated")
+print("\n✓ Total: 10 files generated (where data was available)")
 print("=" * 80)
 
-spark.stop()
-print("\n✓ Spark session closed")
+# Ensure Spark session is properly closed
+try:
+    spark.stop()
+    print("\n✓ Spark session closed successfully")
+except Exception as e:
+    print(f"⚠ Warning: Issue closing Spark session: {str(e)}")
