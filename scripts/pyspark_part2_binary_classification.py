@@ -51,15 +51,20 @@ print("=" * 80)
 # ============================================================================
 print("\n[1/6] Initializing Spark Session...")
 
-spark = SparkSession.builder \
-    .appName("Binary Classification") \
-    .config("spark.driver.memory", "4g") \
-    .config("spark.executor.memory", "4g") \
-    .config("spark.sql.shuffle.partitions", "8") \
-    .getOrCreate()
+try:
+    spark = SparkSession.builder \
+        .appName("Binary Classification") \
+        .config("spark.driver.memory", "4g") \
+        .config("spark.executor.memory", "4g") \
+        .config("spark.sql.shuffle.partitions", "8") \
+        .getOrCreate()
 
-spark.sparkContext.setLogLevel("ERROR")
-print(f"✓ Spark Version: {spark.version}")
+    spark.sparkContext.setLogLevel("ERROR")
+    print(f"✓ Spark Version: {spark.version}")
+except Exception as e:
+    print(f"✗ Error initializing Spark session: {str(e)}")
+    print("Please ensure Spark is properly installed and configured.")
+    sys.exit(1)
 
 # ============================================================================
 # LOAD DATA
@@ -94,25 +99,48 @@ schema = StructType([
     StructField("label", IntegerType(), True)
 ])
 
-df = spark.read.csv('file:///' + os.path.abspath('./data/UNSW-NB15.csv'), header=False, schema=schema)
-df = df.na.fill(0)  # Fill nulls
+# Validate data file exists
+csv_path = os.path.abspath('./data/UNSW-NB15.csv')
+if not os.path.exists(csv_path):
+    print(f"✗ Error: Data file not found at {csv_path}")
+    print("Please ensure the UNSW-NB15.csv file exists in the data directory.")
+    spark.stop()
+    sys.exit(1)
 
-# Clean attack_cat field - remove leading/trailing spaces and standardize categories
-from pyspark.sql.functions import trim, when, col as F_col, regexp_replace
+try:
+    df = spark.read.csv('file:///' + csv_path, header=False, schema=schema)
+    df = df.na.fill(0)  # Fill nulls
+except Exception as e:
+    print(f"✗ Error loading data file: {str(e)}")
+    print("Please check the file format and permissions.")
+    spark.stop()
+    sys.exit(1)
 
-df = df.withColumn(
-    "attack_cat_trimmed",
-    trim(F_col("attack_cat"))
-).withColumn(
-    "attack_cat_standardized",
-    when(F_col("attack_cat_trimmed") == "", None)
-    .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
-    .otherwise(F_col("attack_cat_trimmed"))
-).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
+try:
+    # Clean attack_cat field - remove leading/trailing spaces and standardize categories
+    df = df.withColumn(
+        "attack_cat_trimmed",
+        trim(F_col("attack_cat"))
+    ).withColumn(
+        "attack_cat_standardized",
+        when(F_col("attack_cat_trimmed") == "", None)
+        .when(F_col("attack_cat_trimmed") == "Backdoors", "Backdoor")  # Standardize plural to singular
+        .otherwise(F_col("attack_cat_trimmed"))
+    ).drop("attack_cat", "attack_cat_trimmed").withColumnRenamed("attack_cat_standardized", "attack_cat")
 
-total_records = df.count()
-print(f"✓ Loaded {total_records:,} records")
-print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
+    total_records = df.count()
+    
+    if total_records == 0:
+        print("✗ Error: Dataset is empty")
+        spark.stop()
+        sys.exit(1)
+        
+    print(f"✓ Loaded {total_records:,} records")
+    print("✓ Cleaned attack_cat field (removed leading/trailing spaces)")
+except Exception as e:
+    print(f"✗ Error processing data: {str(e)}")
+    spark.stop()
+    sys.exit(1)
 
 # ============================================================================
 # PREPARE FEATURES
@@ -125,81 +153,120 @@ feature_columns = ['dur', 'sbytes', 'dbytes', 'sttl', 'dttl', 'sloss', 'dloss',
                    'sintpkt', 'dintpkt', 'tcprtt', 'synack', 'ackdat',
                    'is_sm_ips_ports', 'ct_state_ttl', 'ct_flw_http_mthd']
 
-assembler = VectorAssembler(inputCols=feature_columns, outputCol="features_raw")
-scaler = StandardScaler(inputCol="features_raw", outputCol="features")
+try:
+    assembler = VectorAssembler(inputCols=feature_columns, outputCol="features_raw")
+    scaler = StandardScaler(inputCol="features_raw", outputCol="features")
 
-# Split data: 70% training, 30% testing
-train_data, test_data = df.randomSplit([0.7, 0.3], seed=42)
+    # Split data: 70% training, 30% testing
+    train_data, test_data = df.randomSplit([0.7, 0.3], seed=42)
 
-train_count = train_data.count()
-test_count = test_data.count()
+    train_count = train_data.count()
+    test_count = test_data.count()
+    
+    if train_count == 0 or test_count == 0:
+        print("✗ Error: Data split resulted in empty training or test set")
+        spark.stop()
+        sys.exit(1)
 
-print(f"✓ Training set: {train_count:,} records ({train_count/total_records*100:.1f}%)")
-print(f"✓ Test set: {test_count:,} records ({test_count/total_records*100:.1f}%)")
-print(f"✓ Number of features: {len(feature_columns)}")
+    print(f"✓ Training set: {train_count:,} records ({train_count/total_records*100:.1f}%)")
+    print(f"✓ Test set: {test_count:,} records ({test_count/total_records*100:.1f}%)")
+    print(f"✓ Number of features: {len(feature_columns)}")
+except Exception as e:
+    print(f"✗ Error preparing features and splitting data: {str(e)}")
+    spark.stop()
+    sys.exit(1)
 
 # ============================================================================
 # TRAIN RANDOM FOREST CLASSIFIER
 # ============================================================================
 print("\n[4/6] Training Random Forest Classifier...")
 
-rf = RandomForestClassifier(
-    featuresCol="features",
-    labelCol="label",
-    numTrees=100,
-    maxDepth=10,
-    seed=42
-)
+try:
+    rf = RandomForestClassifier(
+        featuresCol="features",
+        labelCol="label",
+        numTrees=100,
+        maxDepth=10,
+        seed=42
+    )
 
-pipeline_rf = Pipeline(stages=[assembler, scaler, rf])
+    pipeline_rf = Pipeline(stages=[assembler, scaler, rf])
 
-print("   Training model (this may take a few minutes)...")
-model_rf = pipeline_rf.fit(train_data)
-print("✓ Model trained successfully")
+    print("   Training model (this may take a few minutes)...")
+    model_rf = pipeline_rf.fit(train_data)
+    print("✓ Model trained successfully")
 
-# Make predictions
-predictions_rf = model_rf.transform(test_data)
-predictions_rf.cache()
+    # Make predictions
+    predictions_rf = model_rf.transform(test_data)
+    predictions_rf.cache()
+    
+    # Verify we have predictions
+    pred_count = predictions_rf.count()
+    if pred_count == 0:
+        print("✗ Error: Model produced no predictions")
+        spark.stop()
+        sys.exit(1)
+    print(f"✓ Generated {pred_count:,} predictions")
+except Exception as e:
+    print(f"✗ Error training model or generating predictions: {str(e)}")
+    spark.stop()
+    sys.exit(1)
 
 # ============================================================================
 # EVALUATE MODEL
 # ============================================================================
 print("\n[5/6] Evaluating Model Performance...")
 
-# Metrics
-evaluator_auc = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderROC")
-evaluator_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
-evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
-evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedPrecision")
-evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedRecall")
+try:
+    # Metrics
+    evaluator_auc = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderROC")
+    evaluator_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+    evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
+    evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedPrecision")
+    evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedRecall")
 
-auc_score = evaluator_auc.evaluate(predictions_rf)
-accuracy = evaluator_acc.evaluate(predictions_rf)
-f1_score = evaluator_f1.evaluate(predictions_rf)
-precision = evaluator_precision.evaluate(predictions_rf)
-recall = evaluator_recall.evaluate(predictions_rf)
+    auc_score = evaluator_auc.evaluate(predictions_rf)
+    accuracy = evaluator_acc.evaluate(predictions_rf)
+    f1_score = evaluator_f1.evaluate(predictions_rf)
+    precision = evaluator_precision.evaluate(predictions_rf)
+    recall = evaluator_recall.evaluate(predictions_rf)
 
-print(f"\n--- Random Forest Performance ---")
-print(f"✓ Accuracy: {accuracy:.4f}")
-print(f"✓ AUC-ROC: {auc_score:.4f}")
-print(f"✓ F1-Score: {f1_score:.4f}")
-print(f"✓ Precision: {precision:.4f}")
-print(f"✓ Recall: {recall:.4f}")
+    print(f"\n--- Random Forest Performance ---")
+    print(f"✓ Accuracy: {accuracy:.4f}")
+    print(f"✓ AUC-ROC: {auc_score:.4f}")
+    print(f"✓ F1-Score: {f1_score:.4f}")
+    print(f"✓ Precision: {precision:.4f}")
+    print(f"✓ Recall: {recall:.4f}")
+except Exception as e:
+    print(f"✗ Error evaluating model performance: {str(e)}")
+    # Set default values for graceful degradation
+    auc_score = accuracy = f1_score = precision = recall = 0.0
 
-# Get predictions for visualization
-pred_labels = predictions_rf.select("label", "prediction", "probability").toPandas()
-y_true = pred_labels['label'].values
-y_pred = pred_labels['prediction'].values
-y_prob = np.array([float(p[1]) for p in pred_labels['probability'].values])
-
-# Confusion Matrix
-cm = confusion_matrix(y_true, y_pred)
-
-print(f"\n--- Confusion Matrix ---")
-print(f"True Negatives: {cm[0, 0]:,}")
-print(f"False Positives: {cm[0, 1]:,}")
-print(f"False Negatives: {cm[1, 0]:,}")
-print(f"True Positives: {cm[1, 1]:,}")
+try:
+    # Get predictions for visualization
+    pred_labels = predictions_rf.select("label", "prediction", "probability").toPandas()
+    
+    if pred_labels.empty:
+        print("⚠ Warning: No prediction data available for visualization")
+        y_true = y_pred = y_prob = np.array([])
+        cm = np.array([[0, 0], [0, 0]])
+    else:
+        y_true = pred_labels['label'].values
+        y_pred = pred_labels['prediction'].values
+        y_prob = np.array([float(p[1]) for p in pred_labels['probability'].values])
+        
+        # Confusion Matrix
+        cm = confusion_matrix(y_true, y_pred)
+        
+        print(f"\n--- Confusion Matrix ---")
+        print(f"True Negatives: {cm[0, 0]:,}")
+        print(f"False Positives: {cm[0, 1]:,}")
+        print(f"False Negatives: {cm[1, 0]:,}")
+        print(f"True Positives: {cm[1, 1]:,}")
+except Exception as e:
+    print(f"⚠ Warning: Error processing predictions for visualization: {str(e)}")
+    y_true = y_pred = y_prob = np.array([])
+    cm = np.array([[0, 0], [0, 0]])
 
 # ============================================================================
 # VISUALIZATIONS
@@ -207,126 +274,175 @@ print(f"True Positives: {cm[1, 1]:,}")
 print("\n[6/6] Creating Visualizations...")
 
 # Visualization 1: Confusion Matrix
-fig, ax = plt.subplots(figsize=(10, 8))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-            xticklabels=['Normal (0)', 'Attack (1)'],
-            yticklabels=['Normal (0)', 'Attack (1)'],
-            cbar_kws={'label': 'Count'}, ax=ax, annot_kws={'size': 14})
+try:
+    if cm.sum() > 0:  # Only create if we have data
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=['Normal (0)', 'Attack (1)'],
+                    yticklabels=['Normal (0)', 'Attack (1)'],
+                    cbar_kws={'label': 'Count'}, ax=ax, annot_kws={'size': 14})
 
-# Add percentages
-for i in range(2):
-    for j in range(2):
-        percent = cm[i, j] / cm.sum() * 100
-        ax.text(j + 0.5, i + 0.7, f'({percent:.1f}%)',
-                ha='center', va='center', fontsize=11, color='gray')
+        # Add percentages
+        for i in range(2):
+            for j in range(2):
+                percent = cm[i, j] / cm.sum() * 100 if cm.sum() > 0 else 0
+                ax.text(j + 0.5, i + 0.7, f'({percent:.1f}%)',
+                        ha='center', va='center', fontsize=11, color='gray')
 
-plt.xlabel('Predicted Label', fontsize=13, weight='bold')
-plt.ylabel('True Label', fontsize=13, weight='bold')
-plt.title('Binary Classification Confusion Matrix\nRandom Forest Classifier',
-          fontsize=15, weight='bold', pad=20)
-plt.tight_layout()
-plt.savefig(output_dir / 'binary_confusion_matrix.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: binary_confusion_matrix.png")
+        plt.xlabel('Predicted Label', fontsize=13, weight='bold')
+        plt.ylabel('True Label', fontsize=13, weight='bold')
+        plt.title('Binary Classification Confusion Matrix\nRandom Forest Classifier',
+                  fontsize=15, weight='bold', pad=20)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'binary_confusion_matrix.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: binary_confusion_matrix.png")
+    else:
+        print("⚠ Warning: Skipping confusion matrix visualization - no data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create confusion matrix visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 2: ROC Curve
-fpr, tpr, thresholds = roc_curve(y_true, y_prob)
-roc_auc = auc(fpr, tpr)
+try:
+    if len(y_true) > 0 and len(y_prob) > 0:
+        fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+        roc_auc = auc(fpr, tpr)
 
-fig, ax = plt.subplots(figsize=(10, 8))
-ax.plot(fpr, tpr, color='#e74c3c', lw=3, label=f'ROC Curve (AUC = {roc_auc:.4f})')
-ax.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--', label='Random Classifier (AUC = 0.5000)')
-ax.fill_between(fpr, tpr, alpha=0.2, color='#e74c3c')
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.plot(fpr, tpr, color='#e74c3c', lw=3, label=f'ROC Curve (AUC = {roc_auc:.4f})')
+        ax.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--', label='Random Classifier (AUC = 0.5000)')
+        ax.fill_between(fpr, tpr, alpha=0.2, color='#e74c3c')
 
-ax.set_xlim([0.0, 1.0])
-ax.set_ylim([0.0, 1.05])
-ax.set_xlabel('False Positive Rate', fontsize=13, weight='bold')
-ax.set_ylabel('True Positive Rate (Recall)', fontsize=13, weight='bold')
-ax.set_title('Receiver Operating Characteristic (ROC) Curve', fontsize=15, weight='bold', pad=20)
-ax.legend(loc="lower right", fontsize=12)
-ax.grid(alpha=0.3)
-plt.tight_layout()
-plt.savefig(output_dir / 'binary_roc_curve.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: binary_roc_curve.png")
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
+        ax.set_xlabel('False Positive Rate', fontsize=13, weight='bold')
+        ax.set_ylabel('True Positive Rate (Recall)', fontsize=13, weight='bold')
+        ax.set_title('Receiver Operating Characteristic (ROC) Curve', fontsize=15, weight='bold', pad=20)
+        ax.legend(loc="lower right", fontsize=12)
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'binary_roc_curve.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: binary_roc_curve.png")
+    else:
+        print("⚠ Warning: Skipping ROC curve visualization - no prediction data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create ROC curve visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 3: Feature Importance
-feature_importance = model_rf.stages[-1].featureImportances.toArray()
-importance_df = pd.DataFrame({
-    'Feature': feature_columns,
-    'Importance': feature_importance
-}).sort_values('Importance', ascending=False)
+try:
+    if 'model_rf' in locals() and model_rf is not None:
+        feature_importance = model_rf.stages[-1].featureImportances.toArray()
+        importance_df = pd.DataFrame({
+            'Feature': feature_columns,
+            'Importance': feature_importance
+        }).sort_values('Importance', ascending=False)
 
-importance_df.to_csv(output_dir / 'binary_feature_importance.csv', index=False)
+        importance_df.to_csv(output_dir / 'binary_feature_importance.csv', index=False)
 
-fig, ax = plt.subplots(figsize=(12, 10))
-top_features = importance_df.head(20)
-colors = plt.cm.viridis(top_features['Importance'] / top_features['Importance'].max())
-bars = ax.barh(range(len(top_features)), top_features['Importance'], color=colors, edgecolor='black')
+        fig, ax = plt.subplots(figsize=(12, 10))
+        top_features = importance_df.head(20)
+        colors = plt.cm.viridis(top_features['Importance'] / top_features['Importance'].max()) if len(top_features) > 0 else ['blue']
+        bars = ax.barh(range(len(top_features)), top_features['Importance'], color=colors, edgecolor='black')
 
-ax.set_yticks(range(len(top_features)))
-ax.set_yticklabels(top_features['Feature'])
-ax.set_xlabel('Importance Score', fontsize=13, weight='bold')
-ax.set_ylabel('Feature', fontsize=13, weight='bold')
-ax.set_title('Top 20 Feature Importance - Binary Classification',
-             fontsize=15, weight='bold', pad=20)
-ax.grid(axis='x', alpha=0.3)
+        ax.set_yticks(range(len(top_features)))
+        ax.set_yticklabels(top_features['Feature'])
+        ax.set_xlabel('Importance Score', fontsize=13, weight='bold')
+        ax.set_ylabel('Feature', fontsize=13, weight='bold')
+        ax.set_title('Top 20 Feature Importance - Binary Classification',
+                     fontsize=15, weight='bold', pad=20)
+        ax.grid(axis='x', alpha=0.3)
 
-# Add value labels
-for i, (idx, row) in enumerate(top_features.iterrows()):
-    ax.text(row['Importance'] + 0.001, i, f"{row['Importance']:.4f}",
-            va='center', fontsize=9)
+        # Add value labels
+        for i, (idx, row) in enumerate(top_features.iterrows()):
+            ax.text(row['Importance'] + 0.001, i, f"{row['Importance']:.4f}",
+                    va='center', fontsize=9)
 
-plt.tight_layout()
-plt.savefig(output_dir / 'binary_feature_importance.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: binary_feature_importance.png")
+        plt.tight_layout()
+        plt.savefig(output_dir / 'binary_feature_importance.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: binary_feature_importance.png")
+    else:
+        print("⚠ Warning: Skipping feature importance visualization - no trained model available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create feature importance visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # Visualization 4: Performance Metrics Comparison
-metrics_data = {
-    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC'],
-    'Score': [accuracy, precision, recall, f1_score, auc_score]
-}
-metrics_df = pd.DataFrame(metrics_data)
+try:
+    if all(var in locals() and var is not None for var in ['accuracy', 'precision', 'recall', 'f1_score', 'auc_score']):
+        metrics_data = {
+            'Metric': ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC'],
+            'Score': [accuracy, precision, recall, f1_score, auc_score]
+        }
+        metrics_df = pd.DataFrame(metrics_data)
 
-fig, ax = plt.subplots(figsize=(10, 6))
-colors_map = ['#3498db', '#e67e22', '#9b59b6', '#2ecc71', '#e74c3c']
-bars = ax.bar(metrics_df['Metric'], metrics_df['Score'], color=colors_map, alpha=0.8, edgecolor='black')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors_map = ['#3498db', '#e67e22', '#9b59b6', '#2ecc71', '#e74c3c']
+        bars = ax.bar(metrics_df['Metric'], metrics_df['Score'], color=colors_map, alpha=0.8, edgecolor='black')
 
-ax.set_ylabel('Score', fontsize=13, weight='bold')
-ax.set_ylim([0, 1.1])
-ax.set_title('Binary Classification Performance Metrics', fontsize=15, weight='bold', pad=20)
-ax.grid(axis='y', alpha=0.3)
+        ax.set_ylabel('Score', fontsize=13, weight='bold')
+        ax.set_ylim([0, 1.1])
+        ax.set_title('Binary Classification Performance Metrics', fontsize=15, weight='bold', pad=20)
+        ax.grid(axis='y', alpha=0.3)
 
-for i, bar in enumerate(bars):
-    height = bar.get_height()
-    ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-           f'{height:.4f}', ha='center', fontsize=11, weight='bold')
+        for i, bar in enumerate(bars):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                   f'{height:.4f}', ha='center', fontsize=11, weight='bold')
 
-plt.tight_layout()
-plt.savefig(output_dir / 'binary_metrics_comparison.png', dpi=300, bbox_inches='tight')
-plt.close()
-print("✓ Saved: binary_metrics_comparison.png")
+        plt.tight_layout()
+        plt.savefig(output_dir / 'binary_metrics_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved: binary_metrics_comparison.png")
+    else:
+        print("⚠ Warning: Skipping metrics comparison visualization - not all metrics available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to create metrics comparison visualization: {str(e)}")
+    if 'plt' in locals():
+        plt.close()
 
 # ============================================================================
 # SAVE RESULTS
 # ============================================================================
-# Save metrics
-metrics_results = pd.DataFrame({
-    'Metric': ['Accuracy', 'AUC-ROC', 'F1-Score', 'Precision', 'Recall',
-               'True Negatives', 'False Positives', 'False Negatives', 'True Positives',
-               'Total Test Samples'],
-    'Value': [accuracy, auc_score, f1_score, precision, recall,
-              int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1]), test_count]
-})
-metrics_results.to_csv(output_dir / 'binary_classification_metrics.csv', index=False)
-print("✓ Saved: binary_classification_metrics.csv")
+try:
+    # Save metrics
+    metrics_results = pd.DataFrame({
+        'Metric': ['Accuracy', 'AUC-ROC', 'F1-Score', 'Precision', 'Recall',
+                   'True Negatives', 'False Positives', 'False Negatives', 'True Positives',
+                   'Total Test Samples'],
+        'Value': [accuracy if 'accuracy' in locals() else 0, 
+                  auc_score if 'auc_score' in locals() else 0, 
+                  f1_score if 'f1_score' in locals() else 0, 
+                  precision if 'precision' in locals() else 0, 
+                  recall if 'recall' in locals() else 0,
+                  int(cm[0, 0]) if cm.size > 0 else 0, 
+                  int(cm[0, 1]) if cm.size > 0 else 0, 
+                  int(cm[1, 0]) if cm.size > 0 else 0, 
+                  int(cm[1, 1]) if cm.size > 0 else 0, 
+                  test_count if 'test_count' in locals() else 0]
+    })
+    metrics_results.to_csv(output_dir / 'binary_classification_metrics.csv', index=False)
+    print("✓ Saved: binary_classification_metrics.csv")
+except Exception as e:
+    print(f"⚠ Warning: Failed to save metrics: {str(e)}")
 
-# Classification report
-class_report = classification_report(y_true, y_pred, target_names=['Normal', 'Attack'], output_dict=True)
-report_df = pd.DataFrame(class_report).transpose()
-report_df.to_csv(output_dir / 'binary_classification_report.csv')
-print("✓ Saved: binary_classification_report.csv")
+try:
+    # Classification report
+    if len(y_true) > 0 and len(y_pred) > 0:
+        class_report = classification_report(y_true, y_pred, target_names=['Normal', 'Attack'], output_dict=True)
+        report_df = pd.DataFrame(class_report).transpose()
+        report_df.to_csv(output_dir / 'binary_classification_report.csv')
+        print("✓ Saved: binary_classification_report.csv")
+    else:
+        print("⚠ Warning: Skipping classification report - no prediction data available")
+except Exception as e:
+    print(f"⚠ Warning: Failed to save classification report: {str(e)}")
 
 # ============================================================================
 # SUMMARY
@@ -335,13 +451,13 @@ print("\n" + "=" * 80)
 print("PART 2 COMPLETE - BINARY CLASSIFICATION")
 print("=" * 80)
 print(f"\nModel: Random Forest Classifier")
-print(f"Training Samples: {train_count:,}")
-print(f"Testing Samples: {test_count:,}")
+print(f"Training Samples: {train_count if 'train_count' in locals() else 'N/A'}")
+print(f"Testing Samples: {test_count if 'test_count' in locals() else 'N/A'}")
 print(f"Features Used: {len(feature_columns)}")
 print(f"\nPerformance Summary:")
-print(f"  Accuracy: {accuracy:.4f}")
-print(f"  AUC-ROC: {auc_score:.4f}")
-print(f"  F1-Score: {f1_score:.4f}")
+print(f"  Accuracy: {accuracy:.4f}" if 'accuracy' in locals() else "  Accuracy: N/A")
+print(f"  AUC-ROC: {auc_score:.4f}" if 'auc_score' in locals() else "  AUC-ROC: N/A")
+print(f"  F1-Score: {f1_score:.4f}" if 'f1_score' in locals() else "  F1-Score: N/A")
 print(f"\nOutput directory: {output_dir}")
 print("\nGenerated Files:")
 print("  1. binary_confusion_matrix.png")
@@ -351,8 +467,12 @@ print("  4. binary_metrics_comparison.png")
 print("  5. binary_classification_metrics.csv")
 print("  6. binary_classification_report.csv")
 print("  7. binary_feature_importance.csv")
-print("\n✓ Total: 7 files generated")
+print("\n✓ Total: 7 files generated (where data was available)")
 print("=" * 80)
 
-spark.stop()
-print("\n✓ Spark session closed")
+# Ensure Spark session is properly closed
+try:
+    spark.stop()
+    print("\n✓ Spark session closed successfully")
+except Exception as e:
+    print(f"⚠ Warning: Issue closing Spark session: {str(e)}")
