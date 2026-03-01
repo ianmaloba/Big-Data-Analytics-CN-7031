@@ -1,6 +1,6 @@
 # Big Data Analytics: Network Intrusion Detection System
 
-This repository contains one of my assignments completed as part of my coursework. The dataset used is the UNSW-NB15.
+The dataset used is the [UNSW-NB15 Dataset](https://www.dropbox.com/s/4xqg32ih9xoh5jq/UNSW-NB15.csv).
 
 The code and analysis are available for educational reference purposes...
 
@@ -347,63 +347,3 @@ The project utilized some contemporary research and industry best practices:
 - Zaharia, M., Chowdhury, M., Franklin, M.J., Shenker, S. and Stoica, I. (2010) 'Spark: Cluster Computing with Working Sets', HotCloud.
 
 - Thusoo, A., et al. (2009) 'Hive: a warehousing solution over a map-reduce framework', Proceedings of the VLDB Endowment.
-
-## Repository Structure
-```
-Big Data Analytics (CN-7031)
-├─ data
-│  ├─ UNSW-NB15_features.csv
-│  └─ UNSW-NB15_LIST_EVENTS.csv
-├─ README.md
-├─ requirements.txt
-├─ results
-│  ├─ hive_results
-│  │  ├─ query1
-│  │  │  └─ 000000_0
-│  │  ├─ query2
-│  │  │  └─ 000000_0
-│  │  └─ query4
-│  │     └─ 000000_0
-│  ├─ hive_visualizations
-│  │  ├─ q1_attack_categories_bar.png
-│  │  ├─ q1_avg_bytes_comparison.png
-│  │  ├─ q1_traffic_distribution_pie.png
-│  │  ├─ q2_attack_percentage_by_protocol.png
-│  │  ├─ q2_connection_vs_attack_scatter.png
-│  │  ├─ q2_top5_protocols_stacked.png
-│  │  ├─ q4_attacks_by_state.png
-│  │  ├─ q4_bytes_distribution.png
-│  │  ├─ q4_state_statistics_multi.png
-│  │  └─ summary_statistics.txt
-│  └─ pyspark_results
-│     ├─ binary_classification_metrics.csv
-│     ├─ binary_classification_report.csv
-│     ├─ binary_confusion_matrix.png
-│     ├─ binary_feature_importance.csv
-│     ├─ binary_feature_importance.png
-│     ├─ binary_metrics_comparison.png
-│     ├─ binary_roc_curve.png
-│     ├─ correlation_matrix.csv
-│     ├─ descriptive_statistics.csv
-│     ├─ multiclass_classification_report.csv
-│     ├─ multiclass_class_distribution.csv
-│     ├─ multiclass_confusion_matrix.png
-│     ├─ multiclass_confusion_normalized.png
-│     ├─ multiclass_distribution.png
-│     ├─ multiclass_feature_importance.csv
-│     ├─ multiclass_feature_importance.png
-│     ├─ multiclass_metrics.csv
-│     ├─ multiclass_overall_metrics.png
-│     ├─ multiclass_performance_metrics.png
-│     ├─ part1_summary.csv
-│     ├─ stats_attack_categories.png
-│     ├─ stats_correlation_heatmap.png
-│     ├─ stats_descriptive_table.png
-│     ├─ stats_feature_distributions.png
-│     └─ stats_label_distribution.png
-└─ scripts
-   ├─ pyspark_part1_statistical_analysis.py
-   ├─ pyspark_part2_binary_classification.py
-   ├─ pyspark_part3_multiclass_classification.py
-   └─ visualize_hive.py
-```
